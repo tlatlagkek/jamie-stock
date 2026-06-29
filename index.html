@@ -770,4 +770,40 @@ function saveKey() {
   const v=document.getElementById('key-input').value.trim();
   if (v && v !== '••••••••') {
     if (!v.startsWith('sk-ant-')) {
-      document.getElementById('key-error').tex
+      document.getElementById('key-error').textContent='올바른 API 키 형식이 아닙니다. (sk-ant-로 시작해야 합니다)';
+      document.getElementById('key-error').classList.add('show');
+      return;
+    }
+    S.apiKey=v;
+    localStorage.setItem('judo_api_key', v);
+  }
+  closeKeyModal();
+  updateKeyBtn();
+}
+function clearKey() {
+  S.apiKey=''; localStorage.removeItem('judo_api_key');
+  document.getElementById('key-input').value='';
+  document.getElementById('key-clear-row').style.display='none';
+  closeKeyModal(); updateKeyBtn();
+}
+function updateKeyBtn() {
+  document.getElementById('key-btn').classList.toggle('active', !!S.apiKey);
+  document.getElementById('key-btn').title = S.apiKey ? 'API 키 설정됨 (클릭하여 변경)' : 'API 키 미설정 (AI 분석 비활성)';
+}
+
+// ─── INIT ─────────────────────────────────────────────────────────────────────
+setInterval(() => document.getElementById('time-display').textContent=fmtNow(), 1000);
+updateKeyBtn();
+document.getElementById('interval-select').value = String(S.autoInterval);
+renderContent();
+setTimeout(runScan, 800);
+
+// PWA Service Worker 등록
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  });
+}
+</script>
+</body>
+</html>
