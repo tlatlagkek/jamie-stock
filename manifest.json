@@ -1,0 +1,28 @@
+{
+  "name": "주도주 레이더",
+  "short_name": "주도주",
+  "description": "홍인기 방식 장 초반 주도주 분석 앱",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0a0c10",
+  "theme_color": "#00e5a0",
+  "orientation": "portrait-primary",
+  "lang": "ko",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "지금 스캔",
+      "short_name": "스캔",
+      "description": "주도주 즉시 스캔",
+      "url": "./index.html"
+    }
+  ]
+}
