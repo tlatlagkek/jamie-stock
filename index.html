@@ -225,8 +225,17 @@
         <button class="toggle-btn off" id="notif-btn" onclick="toggleNotif()">허용하기</button>
       </div>
       <div class="alarm-row">
-        <span class="alarm-row-label">⏱ 자동 스캔 (5분 간격)</span>
-        <button class="toggle-btn off" id="auto-btn" onclick="toggleAutoScan()">OFF</button>
+        <span class="alarm-row-label">⏱ 자동 스캔</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <select id="interval-select" onchange="updateInterval(this.value)" style="background:#1a1d24;border:1px solid #222530;border-radius:6px;color:#e8eaf0;padding:4px 8px;font-size:11px;font-family:inherit;cursor:pointer;outline:none">
+            <option value="60">1분</option>
+            <option value="180">3분</option>
+            <option value="300">5분</option>
+            <option value="600">10분</option>
+            <option value="1800">30분</option>
+          </select>
+          <button class="toggle-btn off" id="auto-btn" onclick="toggleAutoScan()">OFF</button>
+        </div>
       </div>
       <div class="alarm-row" style="flex-direction:column;align-items:stretch;gap:8px;border-bottom:none">
         <div class="threshold-wrap">
@@ -289,9 +298,9 @@ const S = {
   signal:null, prevSignal:null,
   alarmLog:[], notifEnabled:false, autoScanEnabled:false,
   countdownTimer:null, countdown:0, threshold:3.0, panelOpen:false,
+  autoInterval: parseInt(localStorage.getItem('judo_auto_interval')||'300'),
   apiKey: localStorage.getItem('judo_api_key') || '',
 };
-const AUTO_SEC = 300;
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 const esc = s => String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -561,19 +570,29 @@ async function runAiAnalysis() {
     if (IS_ELECTRON) {
       // Electron: Node.js에서 직접 호출 (CORS 없음)
       text = await window.electronAPI.callAnthropic({ apiKey: S.apiKey, prompt });
-    } else if (location.protocol === 'file:') {
-      // file:// 환경: 브라우저 보안 정책으로 AI API POST 요청 불가
-      throw new Error('file:// 환경에서는 AI 분석이 제한됩니다.\n\n✅ 해결 방법:\n  • 「실행.bat」 더블클릭으로 앱 실행 (권장)\n  • 또는 GitHub Pages에 배포 후 사용');
     } else {
-      // HTTPS 환경 (GitHub Pages 등): 직접 호출
+      // 브라우저 환경: 직접 호출 → corsproxy.io 순서로 시도
+      if (location.protocol === 'file:') {
+        // file://에서도 프록시 경유로 시도 (실패 시 안내 메시지)
+      }
       const CLAUDE_API = 'https://api.anthropic.com/v1/messages';
       const reqBody = JSON.stringify({ model:'claude-haiku-4-5-20251001', max_tokens:800, messages:[{role:'user',content:prompt}] });
       const baseHeaders = { 'Content-Type':'application/json', 'x-api-key':S.apiKey, 'anthropic-version':'2023-06-01' };
-      const r = await fetch(CLAUDE_API, {
-        method:'POST', body:reqBody,
-        headers:{...baseHeaders, 'anthropic-dangerous-direct-browser-calls':'true'},
-      });
-      const d = await r.json();
+      const AI_PROXIES = [
+        () => fetch(CLAUDE_API, { method:'POST', body:reqBody,
+              headers:{...baseHeaders, 'anthropic-dangerous-direct-browser-calls':'true'} }),
+        () => fetch('https://corsproxy.io/?' + encodeURIComponent(CLAUDE_API),
+              { method:'POST', body:reqBody, headers:baseHeaders }),
+        () => fetch('https://api.allorigins.win/post?url=' + encodeURIComponent(CLAUDE_API),
+              { method:'POST', body:JSON.stringify({method:'POST',body:reqBody,headers:baseHeaders}) })
+              .then(r=>r.json()).then(j=>({ json: ()=>JSON.parse(j.contents) })),
+      ];
+      let d;
+      for (const fn of AI_PROXIES) {
+        try { const r = await fn(); d = await (r.json ? r.json() : r); break; }
+        catch { continue; }
+      }
+      if (!d) throw new Error('AI API 연결 실패. 잠시 후 다시 시도해주세요.\n(지속될 경우 「실행.bat」으로 앱을 실행해보세요)');
       if (d.error) throw new Error(d.error.message);
       text = (d.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('');
     }
@@ -695,9 +714,14 @@ function updateAlarmUI() {
 }
 
 // ─── AUTO SCAN ────────────────────────────────────────────────────────────────
+function updateInterval(v) {
+  S.autoInterval = parseInt(v);
+  localStorage.setItem('judo_auto_interval', v);
+  if (S.autoScanEnabled) startAutoScan();
+}
 function startAutoScan() {
-  stopAutoScan(); S.countdown=AUTO_SEC;
-  S.countdownTimer=setInterval(()=>{ S.countdown--; if(S.countdown<=0){runScan();S.countdown=AUTO_SEC;} renderCountdown(); },1000);
+  stopAutoScan(); S.countdown=S.autoInterval;
+  S.countdownTimer=setInterval(()=>{ S.countdown--; if(S.countdown<=0){runScan();S.countdown=S.autoInterval;} renderCountdown(); },1000);
   renderCountdown();
 }
 function stopAutoScan() {
@@ -746,39 +770,4 @@ function saveKey() {
   const v=document.getElementById('key-input').value.trim();
   if (v && v !== '••••••••') {
     if (!v.startsWith('sk-ant-')) {
-      document.getElementById('key-error').textContent='올바른 API 키 형식이 아닙니다. (sk-ant-로 시작해야 합니다)';
-      document.getElementById('key-error').classList.add('show');
-      return;
-    }
-    S.apiKey=v;
-    localStorage.setItem('judo_api_key', v);
-  }
-  closeKeyModal();
-  updateKeyBtn();
-}
-function clearKey() {
-  S.apiKey=''; localStorage.removeItem('judo_api_key');
-  document.getElementById('key-input').value='';
-  document.getElementById('key-clear-row').style.display='none';
-  closeKeyModal(); updateKeyBtn();
-}
-function updateKeyBtn() {
-  document.getElementById('key-btn').classList.toggle('active', !!S.apiKey);
-  document.getElementById('key-btn').title = S.apiKey ? 'API 키 설정됨 (클릭하여 변경)' : 'API 키 미설정 (AI 분석 비활성)';
-}
-
-// ─── INIT ─────────────────────────────────────────────────────────────────────
-setInterval(() => document.getElementById('time-display').textContent=fmtNow(), 1000);
-updateKeyBtn();
-renderContent();
-setTimeout(runScan, 800);
-
-// PWA Service Worker 등록
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').catch(() => {});
-  });
-}
-</script>
-</body>
-</html
+      document.getElementById('key-error').tex
