@@ -396,10 +396,15 @@ async function fetchThemes(limit = 20) {
       })
       .filter(Boolean);
 
-    // 27% 이상 종목 제외 → 테마별 대장주 1개 선정
-    // rate가 null(확인 불가)인 경우 안전하게 포함
-    const picked = candidates.find(c => c.rate === null || c.rate < 27);
-    const leaders = picked ? [picked.name] : [];
+    // 27% 이상 제외 → 종목 등락률 높은 순 정렬 → 테마별 대장주 1개 ({name, rate} 객체)
+    const valid = candidates.filter(c => c.rate === null || c.rate < 27);
+    valid.sort((x, y) => {
+      if (x.rate === null && y.rate === null) return 0;
+      if (x.rate === null) return 1;
+      if (y.rate === null) return -1;
+      return y.rate - x.rate;
+    });
+    const leaders = valid.length ? [valid[0]] : [];
 
     items.push({ themeName, themeId, changeRate, leaders });
   });
@@ -492,7 +497,7 @@ function calcSignal() {
   const topRate=pos.length?rateNum(pos[0].changeRate):0;
   const posCount=pos.length;
   const topTheme=pos[0]?.themeName??null;
-  const topLeader=(pos[0]?.leaders??[])[0]??null;
+  const topLeader=(pos[0]?.leaders??[])[0]?.name??null;
 
   const top5etf=S.etfs.slice(0,5);
   const bullEtf=top5etf.filter(e=>!e.name.includes('인버스')&&rateNum(e.changeRate)>0).length;
@@ -576,7 +581,7 @@ async function runAiAnalysis() {
   }
   S.aiLoading=true; S.aiText=''; renderAi();
   const up=S.themes.filter(t=>rateNum(t.changeRate)>0);
-  const themeStr=up.slice(0,5).map((t,i)=>`${i+1}위: ${t.themeName}(${(t.leaders??[]).join('/')}·${t.changeRate})`).join(', ')||'상승 테마 없음';
+  const themeStr=up.slice(0,5).map((t,i)=>{const l0=(t.leaders??[])[0];const ln=l0?.name||'-';const lr=l0?.rate!=null?` ${fmtRate(l0.rate)}`:'';return `${i+1}위: ${t.themeName}(${ln}${lr}·${t.changeRate})`;}).join(', ')||'상승 테마 없음';
   const etfStr=S.etfs.slice(0,3).map(e=>`${e.name}(${fmtRate(e.changeRate)})`).join(', ');
   const prompt=`당신은 홍인기 스타일 단타 주도주 분석 전문가입니다.
 홍인기 원칙: 거래대금 상위 + 주도 테마 대장주 + 수급 확인(9:10~9:30) + -3% 손절
@@ -631,9 +636,12 @@ function renderLeader() {
   if (!pos.length) { card.classList.remove('visible'); return; }
   const top=pos[0];
   card.classList.add('visible');
-  document.getElementById('leader-name').textContent=(top.leaders??['?'])[0];
+  const topLeader0=(top.leaders??[])[0];
+  document.getElementById('leader-name').textContent=topLeader0?.name||'?';
   document.getElementById('leader-theme').textContent='📌 '+top.themeName;
-  document.getElementById('leader-rate').textContent='▲ '+fmtRate(top.changeRate);
+  // 대장주 개별 등락률 표시 (없으면 테마 등락률 fallback)
+  const leaderRate=topLeader0?.rate!=null?fmtRate(topLeader0.rate):fmtRate(top.changeRate);
+  document.getElementById('leader-rate').textContent='▲ '+leaderRate;
   document.getElementById('leader-count').textContent='상승 테마 '+pos.length+'개';
   document.getElementById('leader-right').innerHTML=pos.slice(0,3).map((t,i)=>
     `<div class="leader-sub" style="color:${i===0?'#00e5a0':'#8b90a0'}">${i+1}. ${esc(t.themeName)} ${fmtRate(t.changeRate)}</div>`
@@ -655,7 +663,8 @@ function renderContent() {
   if (t==='themes') {
     const rows=S.themes.length?S.themes.map((th,i)=>{
       const c=getRateColor(th.changeRate);
-      return `<div class="list-row${i===0?' top1':''}"><div class="rank-num" style="color:${rankColor(i+1)}">${i+1}</div><div class="row-main"><div class="row-name" style="${i<3?'font-weight:600':''}">${esc(th.themeName)}</div><div class="row-sub">${esc((th.leaders??[]).join(', '))}</div></div><div class="row-rate" style="color:${c}">${fmtRate(th.changeRate)}</div></div>`;
+      const ldr=(th.leaders??[])[0]; const ldrTxt=ldr?`${ldr.name||ldr}${ldr.rate!=null?' '+fmtRate(ldr.rate):''}`:'-';
+      return `<div class="list-row${i===0?' top1':''}"><div class="rank-num" style="color:${rankColor(i+1)}">${i+1}</div><div class="row-main"><div class="row-name" style="${i<3?'font-weight:600':''}">${esc(th.themeName)}</div><div class="row-sub">${esc(ldrTxt)}</div></div><div class="row-rate" style="color:${c}">${fmtRate(th.changeRate)}</div></div>`;
     }).join(''):empty;
     area.innerHTML=card('🔥 주도 테마 순위 (전일 대비 상승률)','badge-green',S.themes.length+'개',rows);
   } else if (t==='caps') {
