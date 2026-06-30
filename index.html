@@ -369,12 +369,38 @@ async function fetchThemes(limit = 20) {
     const themeId = (href.match(/code=(\w+)/) || [])[1] || '';
     const rateEl = tds[1].querySelector('span.up,span.dn,span') || tds[1];
     const changeRate = rateEl.textContent.trim().replace(/\s+/g,'') || '0%';
-    // 대장주: 6자리 종목코드(code=\d{6}) 링크로 찾기
-    const leaders = Array.from(row.querySelectorAll('a[href*="code="]'))
-      .filter(a => /code=\d{6}/.test(a.getAttribute('href') || ''))
-      .map(a => a.textContent.trim())
-      .filter(t => t.length > 0)
-      .slice(0, 3);
+
+    // 6자리 종목코드 링크 = 대장주 후보. 각 후보의 등락률도 함께 추출
+    const candidates = Array.from(row.querySelectorAll('a[href*="code="]'))
+      .filter(la => /code=\d{6}/.test(la.getAttribute('href') || ''))
+      .map(la => {
+        const name = la.textContent.trim();
+        if (!name) return null;
+        let rate = null;
+        // 1) 같은 td 안 span.up/span.dn 에서 등락률 추출
+        const td = la.closest('td');
+        if (td) {
+          for (const sp of td.querySelectorAll('span.up,span.dn,span')) {
+            if (sp.contains(la)) continue;
+            const v = parseFloat(sp.textContent.replace(/[+%]/g,''));
+            if (!isNaN(v)) { rate = v; break; }
+          }
+        }
+        // 2) td 텍스트에서 종목명 뒤 퍼센트 숫자 추출
+        if (rate === null && td) {
+          const after = (td.textContent||'').slice((td.textContent||'').indexOf(name)+name.length);
+          const m = after.match(/([+-]?[\d.]+)%/);
+          if (m) rate = parseFloat(m[1]);
+        }
+        return { name, rate };
+      })
+      .filter(Boolean);
+
+    // 27% 이상 종목 제외 → 테마별 대장주 1개 선정
+    // rate가 null(확인 불가)인 경우 안전하게 포함
+    const picked = candidates.find(c => c.rate === null || c.rate < 27);
+    const leaders = picked ? [picked.name] : [];
+
     items.push({ themeName, themeId, changeRate, leaders });
   });
   return items;
@@ -751,31 +777,4 @@ function openKeyModal() {
   document.getElementById('key-error').classList.remove('show');
   document.getElementById('key-clear-row').style.display = S.apiKey ? 'block' : 'none';
   document.getElementById('key-modal').classList.add('open');
-  setTimeout(() => inp.focus(), 100);
-}
-function closeKeyModal() {
-  document.getElementById('key-modal').classList.remove('open');
-}
-function saveKey() {
-  const v=document.getElementById('key-input').value.trim();
-  if (v && v !== '••••••••') {
-    if (!v.startsWith('sk-ant-')) {
-      document.getElementById('key-error').textContent='올바른 API 키 형식이 아닙니다. (sk-ant-로 시작해야 합니다)';
-      document.getElementById('key-error').classList.add('show');
-      return;
-    }
-    S.apiKey=v;
-    localStorage.setItem('judo_api_key', v);
-  }
-  closeKeyModal();
-  updateKeyBtn();
-}
-function clearKey() {
-  S.apiKey=''; localStorage.removeItem('judo_api_key');
-  document.getElementById('key-input').value='';
-  document.getElementById('key-clear-row').style.display='none';
-  closeKeyModal(); updateKeyBtn();
-}
-function updateKeyBtn() {
-  document.getElementById('key-btn').classList.toggle('active', !!S.apiKey);
-  document.getElementById('key-btn').title = S.apiKey ? 'API 키 설정됨 (클릭하여 변경)' : 'API 키 미설정 (AI 
+  setTi
